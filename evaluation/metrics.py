@@ -4,13 +4,45 @@ from __future__ import annotations
 
 import math
 from pathlib import Path
-from typing import Iterable
 
 import cv2
 import numpy as np
 from skimage.metrics import peak_signal_noise_ratio, structural_similarity
 
 IMAGE_EXTENSIONS = {".png", ".jpg", ".jpeg"}
+
+
+def binarize_mask(mask: np.ndarray, mode: str = "auto", fixed_threshold: int = 127) -> np.ndarray:
+    """
+    Foreground boolean mask.
+
+    - ``nonzero``: ``mask > 0``
+    - ``fixed127``: ``mask > fixed_threshold`` (default 127)
+    - ``auto``:
+        - ``mask.max() <= 1``: ``mask > 0``
+        - few labels (<=20 unique) and ``max <= 20``: indexed map, ``mask > 0``
+        - few labels (<=32 unique) and ``max < 128``: DAVIS-style indexed PNG (e.g. 0,38,75), ``mask > 0``
+        - otherwise: ``mask > fixed_threshold`` (typical 0/255 binaries)
+    """
+    if mode not in ("auto", "nonzero", "fixed127"):
+        raise ValueError(f"Unknown binarize mode {mode!r}; expected auto|nonzero|fixed127.")
+    m = np.asarray(mask)
+    if m.dtype == bool:
+        return m.astype(bool)
+    if mode == "nonzero":
+        return m > 0
+    if mode == "fixed127":
+        return m > fixed_threshold
+
+    mx = float(np.nanmax(m)) if m.size else 0.0
+    nu = int(np.unique(m).size)
+    if mx <= 1.0:
+        return m > 0
+    if nu <= 20 and mx <= 20.0:
+        return m > 0
+    if nu <= 32 and mx < 128.0:
+        return m > 0
+    return m > fixed_threshold
 
 
 def natural_image_sort_key(path: Path) -> tuple:
@@ -40,19 +72,25 @@ def sorted_image_paths(directory: str | Path) -> list[Path]:
     return _list_image_files(Path(directory))
 
 
-def load_binary_mask(path: str | Path, threshold: int = 127) -> np.ndarray:
-    """Load a grayscale image and return a boolean foreground mask (pixel > threshold)."""
+def load_binary_mask(
+    path: str | Path,
+    mode: str = "auto",
+    threshold: int = 127,
+) -> np.ndarray:
+    """Load mask as grayscale (or first channel) and binarize with :func:`binarize_mask`."""
     path = Path(path)
     if not path.is_file():
         raise FileNotFoundError(
             f"Mask file not found: {path.resolve()}. Cannot load binary mask."
         )
-    img = cv2.imread(str(path), cv2.IMREAD_GRAYSCALE)
+    img = cv2.imread(str(path), cv2.IMREAD_UNCHANGED)
     if img is None:
         raise FileNotFoundError(
             f"Failed to read mask image (OpenCV returned None): {path.resolve()}."
         )
-    return img > threshold
+    if img.ndim == 3:
+        img = cv2.cvtColor(img, cv2.COLOR_BGR2GRAY)
+    return binarize_mask(np.asarray(img), mode=mode, fixed_threshold=threshold)
 
 
 def load_rgb_image(path: str | Path) -> np.ndarray:
@@ -68,6 +106,21 @@ def load_rgb_image(path: str | Path) -> np.ndarray:
             f"Failed to read image (OpenCV returned None): {path.resolve()}."
         )
     return cv2.cvtColor(bgr, cv2.COLOR_BGR2RGB)
+
+
+def _load_mask_gray(path: Path) -> np.ndarray:
+    """Load single-channel mask array (no binarization)."""
+    path = Path(path)
+    if not path.is_file():
+        raise FileNotFoundError(f"Mask file not found: {path.resolve()}.")
+    img = cv2.imread(str(path), cv2.IMREAD_UNCHANGED)
+    if img is None:
+        raise FileNotFoundError(
+            f"Failed to read mask image (OpenCV returned None): {path.resolve()}."
+        )
+    if img.ndim == 3:
+        img = cv2.cvtColor(img, cv2.COLOR_BGR2GRAY)
+    return np.asarray(img)
 
 
 def compute_iou(pred_mask: np.ndarray, gt_mask: np.ndarray) -> float:
@@ -97,8 +150,11 @@ def compute_jm_jr(
     pred_mask_dir: str | Path,
     gt_mask_dir: str | Path,
     iou_threshold: float = 0.5,
+    pred_binarization_mode: str = "auto",
+    gt_binarization_mode: str = "auto",
+    fixed_threshold: int = 127,
 ) -> dict:
-    """Pair frames by sorted order (numeric-aware stems), optional GT resize to pred size."""
+    """Pair frames by sorted stems; resize **pred** to **GT** shape with INTER_NEAREST, then binarize."""
     pred_mask_dir = Path(pred_mask_dir)
     gt_mask_dir = Path(gt_mask_dir)
     pred_files = _list_image_files(pred_mask_dir)
@@ -109,17 +165,46 @@ def compute_jm_jr(
             f"vs {len(gt_files)} GT masks in {gt_mask_dir}. Check filenames and padding."
         )
 
+    mask_alignment: dict | None = None
     ious: list[float] = []
-    for pred_path, gt_path in zip(pred_files, gt_files):
-        pred_mask = load_binary_mask(pred_path)
-        gt_mask = load_binary_mask(gt_path)
-        if gt_mask.shape != pred_mask.shape:
-            gt_mask = cv2.resize(
-                gt_mask.astype(np.uint8),
-                (pred_mask.shape[1], pred_mask.shape[0]),
-                interpolation=cv2.INTER_NEAREST,
-            ).astype(bool)
+    for idx, (pred_path, gt_path) in enumerate(zip(pred_files, gt_files)):
+        pred = _load_mask_gray(pred_path)
+        gt = _load_mask_gray(gt_path)
+        pred_hw = tuple(int(x) for x in pred.shape[:2])
+        gt_hw = tuple(int(x) for x in gt.shape[:2])
+        if pred_hw != gt_hw:
+            gh, gw = gt_hw[0], gt_hw[1]
+            pred = cv2.resize(pred, (gw, gh), interpolation=cv2.INTER_NEAREST)
+            if mask_alignment is None:
+                mask_alignment = {
+                    "resized_pred_to_gt": True,
+                    "interpolation": "INTER_NEAREST",
+                    "dsize_wh": [gw, gh],
+                    "target_shape_hw": [gh, gw],
+                    "example_pair_index": idx,
+                    "example_pred_path": str(pred_path),
+                    "pred_shape_before_hw": list(pred_hw),
+                }
+
+        pred_mask = binarize_mask(
+            pred, mode=pred_binarization_mode, fixed_threshold=fixed_threshold
+        )
+        gt_mask = binarize_mask(
+            gt, mode=gt_binarization_mode, fixed_threshold=fixed_threshold
+        )
         ious.append(compute_iou(pred_mask, gt_mask))
+
+    if mask_alignment is None:
+        mask_alignment = {"resized_pred_to_gt": False}
+
+    meta = {
+        "pred_binarization_mode": pred_binarization_mode,
+        "gt_binarization_mode": gt_binarization_mode,
+        "pred_threshold_mode": pred_binarization_mode,
+        "gt_threshold_mode": gt_binarization_mode,
+        "fixed_threshold": fixed_threshold,
+        "mask_alignment": mask_alignment,
+    }
 
     if not ious:
         return {
@@ -128,6 +213,7 @@ def compute_jm_jr(
             "JR": float("nan"),
             "mean_iou": float("nan"),
             "ious": [],
+            **meta,
         }
 
     jm = float(np.mean(ious))
@@ -138,6 +224,7 @@ def compute_jm_jr(
         "JR": jr,
         "mean_iou": jm,
         "ious": ious,
+        **meta,
     }
 
 
@@ -151,6 +238,8 @@ def compute_psnr_ssim(
     restored_dir: str | Path,
     gt_frame_dir: str | Path,
     mask_dir: str | Path | None = None,
+    pred_mask_threshold_mode: str = "auto",
+    pred_mask_fixed_threshold: int = 127,
 ) -> dict:
     """Full-frame PSNR/SSIM vs GT; optional masked PSNR (MSE inside foreground only)."""
     restored_dir = Path(restored_dir)
@@ -208,7 +297,11 @@ def compute_psnr_ssim(
             continue
 
         mpath = mask_files[idx]
-        fg = load_binary_mask(mpath)
+        fg = load_binary_mask(
+            mpath,
+            mode=pred_mask_threshold_mode,
+            threshold=pred_mask_fixed_threshold,
+        )
         if fg.shape[:2] != rest.shape[:2]:
             fg = cv2.resize(
                 fg.astype(np.uint8),

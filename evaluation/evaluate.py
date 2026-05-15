@@ -86,14 +86,39 @@ def main() -> None:
         action="store_true",
         help="If set, compute masked PSNR using masks from --pred-mask-dir.",
     )
+    parser.add_argument(
+        "--mask-threshold-mode",
+        choices=("auto", "nonzero", "fixed127"),
+        default="auto",
+        help="Pred (and default GT) mask binarization for JM/JR.",
+    )
+    parser.add_argument(
+        "--gt-mask-threshold-mode",
+        choices=("auto", "nonzero", "fixed127"),
+        default=None,
+        help="GT mask binarization; defaults to --mask-threshold-mode.",
+    )
+    parser.add_argument(
+        "--mask-fixed-threshold",
+        type=int,
+        default=127,
+        help="Threshold for fixed127 / auto fallback (default 127).",
+    )
     args = parser.parse_args()
 
     _require_pred_dir(args.pred_mask_dir, "Prediction mask directory")
     _require_pred_dir(args.pred_frame_dir, "Prediction frame directory")
 
+    gt_mask_mode = args.gt_mask_threshold_mode or args.mask_threshold_mode
+
     payload: dict = {
         "method": args.method_name,
         "dataset": args.dataset_name,
+        "mask_threshold_mode": args.mask_threshold_mode,
+        "gt_mask_threshold_mode": gt_mask_mode,
+        "pred_binarization_mode": args.mask_threshold_mode,
+        "gt_binarization_mode": gt_mask_mode,
+        "mask_fixed_threshold": args.mask_fixed_threshold,
         "mask_metrics": None,
         "video_metrics": None,
     }
@@ -103,6 +128,9 @@ def main() -> None:
             args.pred_mask_dir,
             args.gt_mask_dir,
             iou_threshold=args.iou_threshold,
+            pred_binarization_mode=args.mask_threshold_mode,
+            gt_binarization_mode=gt_mask_mode,
+            fixed_threshold=args.mask_fixed_threshold,
         )
         payload["mask_metrics"] = mm
     else:
@@ -113,6 +141,8 @@ def main() -> None:
             args.pred_frame_dir,
             args.gt_frame_dir,
             mask_dir=args.pred_mask_dir if args.masked_psnr else None,
+            pred_mask_threshold_mode=args.mask_threshold_mode,
+            pred_mask_fixed_threshold=args.mask_fixed_threshold,
         )
         payload["video_metrics"] = vm
     else:

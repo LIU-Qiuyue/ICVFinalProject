@@ -1,6 +1,7 @@
 """Evaluation utilities for video object removal and inpainting."""
 
 from evaluation.metrics import (
+    binarize_mask,
     compute_iou,
     compute_jm_jr,
     compute_psnr_ssim,
@@ -10,6 +11,7 @@ from evaluation.metrics import (
 )
 
 __all__ = [
+    "binarize_mask",
     "load_binary_mask",
     "compute_iou",
     "compute_jm_jr",

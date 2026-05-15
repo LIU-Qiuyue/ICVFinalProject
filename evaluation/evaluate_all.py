@@ -84,6 +84,9 @@ def main() -> None:
     output_dir = Path(cfg["output_dir"])
     iou_threshold = float(cfg.get("iou_threshold", 0.5))
     masked_psnr = bool(cfg.get("masked_psnr", False))
+    mask_threshold_mode = str(cfg.get("mask_threshold_mode", "auto"))
+    gt_mask_threshold_mode = str(cfg.get("gt_mask_threshold_mode", mask_threshold_mode))
+    mask_fixed_threshold = int(cfg.get("mask_fixed_threshold", 127))
 
     pred_mask_tpl = cfg.get("pred_mask_template", DEFAULT_PRED_MASK_TEMPLATE)
     pred_frame_tpl = cfg.get("pred_frame_template", DEFAULT_PRED_FRAME_TEMPLATE)
@@ -121,6 +124,11 @@ def main() -> None:
             payload: dict = {
                 "method": method,
                 "dataset": dataset,
+                "mask_threshold_mode": mask_threshold_mode,
+                "gt_mask_threshold_mode": gt_mask_threshold_mode,
+                "pred_binarization_mode": mask_threshold_mode,
+                "gt_binarization_mode": gt_mask_threshold_mode,
+                "mask_fixed_threshold": mask_fixed_threshold,
                 "mask_metrics": None,
                 "video_metrics": None,
             }
@@ -144,7 +152,12 @@ def main() -> None:
             if _gt_dir_usable(gt_mask_dir):
                 try:
                     payload["mask_metrics"] = compute_jm_jr(
-                        pred_mask_dir, gt_mask_dir, iou_threshold=iou_threshold
+                        pred_mask_dir,
+                        gt_mask_dir,
+                        iou_threshold=iou_threshold,
+                        pred_binarization_mode=mask_threshold_mode,
+                        gt_binarization_mode=gt_mask_threshold_mode,
+                        fixed_threshold=mask_fixed_threshold,
                     )
                 except (FileNotFoundError, ValueError) as e:
                     print(f"[warn {method}/{dataset}] Mask metrics failed: {e}")
@@ -157,6 +170,8 @@ def main() -> None:
                         pred_frame_dir,
                         gt_frame_dir,
                         mask_dir=pred_mask_dir if masked_psnr else None,
+                        pred_mask_threshold_mode=mask_threshold_mode,
+                        pred_mask_fixed_threshold=mask_fixed_threshold,
                     )
                 except (FileNotFoundError, ValueError) as e:
                     print(f"[warn {method}/{dataset}] Video metrics failed: {e}")
