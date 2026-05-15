@@ -1,0 +1,14 @@
+{
+  "datasets": ["bmx-trees", "tennis", "wild_001", "wild_002", "wild_003"],
+  "methods": ["part1", "part2", "part3"],
+  "results_root": "outputs",
+  "gt_mask_root": "data/GroundTruth",
+  "gt_frame_root": "data/gt_frames",
+  "output_dir": "outputs/evaluation",
+  "iou_threshold": 0.5,
+  "pred_mask_template": "{results_root}/masks/{method}/{dataset}",
+  "pred_frame_template": "{results_root}/inpaint/{method}/{dataset}",
+  "gt_mask_template": "{gt_mask_root}/{dataset}",
+  "gt_frame_template": "{gt_frame_root}/{dataset}",
+  "masked_psnr": false
+}

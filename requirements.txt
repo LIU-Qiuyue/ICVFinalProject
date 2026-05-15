@@ -1,0 +1,10 @@
+# Core utilities used by evaluation/, merge_masks, extract_frames, and Part 1 (Ultralytics).
+# SAM 2 / SAM 3 / ProPainter environments may need separate installs — see README.md.
+
+numpy>=1.26,<2
+opencv-python>=4.8
+scikit-image
+pandas
+matplotlib
+pillow
+ultralytics>=8.0

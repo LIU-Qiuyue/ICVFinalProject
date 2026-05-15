@@ -1,0 +1,42 @@
+# Python
+__pycache__/
+*.py[cod]
+*$py.class
+.Python
+*.egg-info/
+.eggs/
+dist/
+build/
+
+# Editors / OS
+.idea/
+.vscode/
+.DS_Store
+
+# Local secrets
+.env
+*.pem
+
+# Project outputs (regenerated)
+outputs/*
+!outputs/.gitkeep
+
+# Large / local data (keep README placeholders only)
+data/frames/
+data/videos/
+data/GroundTruth/
+data/gt_masks/
+data/gt_frames/
+*.mp4
+*.avi
+*.mov
+*.mkv
+datasets/
+
+# Checkpoints & weights (download separately; many exceed GitHub limits)
+third_party/propainter/weights/*.pth
+third_party/propainter/weights/*.pt
+third_party/sam2/checkpoints/
+
+# Hugging Face / pip caches (optional)
+.cache/
