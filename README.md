@@ -2,8 +2,7 @@
 
 Spring 2026 term project: remove dynamic objects from video and inpaint clean backgrounds using temporal cues. This repository bundles **our pipeline scripts**, **quantitative evaluation**, and **pinned third-party implementations** (SAM 2/3, ProPainter, utilities).
 
-**Replace this sentence in your CVPR-style PDF abstract with your public clone URL:**  
-`Code: https://github.com/<your-org>/<your-repo>`
+https://github.com/LIU-Qiuyue/ICVFinalProject.git
 
 ---
 
